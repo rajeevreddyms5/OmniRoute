@@ -29,11 +29,23 @@ interface RtkFilterLoadOptions {
   trustProjectFilters?: boolean;
 }
 
+function getModuleDir(): string | null {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return null;
+  }
+}
+
 function getFiltersDir(): string {
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const moduleDir = getModuleDir();
   const candidates = [
-    path.join(moduleDir, "filters"),
-    path.join(moduleDir, "..", "services", "compression", "engines", "rtk", "filters"),
+    ...(moduleDir
+      ? [
+          path.join(moduleDir, "filters"),
+          path.join(moduleDir, "..", "services", "compression", "engines", "rtk", "filters"),
+        ]
+      : []),
     path.join(process.cwd(), "open-sse", "services", "compression", "engines", "rtk", "filters"),
     path.join(
       process.cwd(),

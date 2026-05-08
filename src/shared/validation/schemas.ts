@@ -1309,6 +1309,39 @@ export const cloudSyncActionSchema = z.object({
   action: z.enum(["enable", "sync", "disable"]),
 });
 
+export const storageSyncConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  rcloneRemote: z
+    .string()
+    .trim()
+    .min(1, "rcloneRemote is required")
+    .max(300)
+    .regex(/^[^<>"|?*\r\n]+$/, "rcloneRemote contains invalid path characters"),
+  remotePrefix: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/^[^<>"|?*\r\n]+$/, "remotePrefix contains invalid path characters")
+    .optional(),
+  keepLatest: z.number().int().min(1).max(100).optional(),
+  encryptionMode: z.enum(["cloud", "app"]).optional(),
+  autoUpload: z.boolean().optional(),
+  autoRestore: z.boolean().optional(),
+  autoIntervalMinutes: z.number().int().min(5).max(1440).optional(),
+});
+
+export const storageSyncActionSchema = z.object({
+  action: z.enum(["upload", "list", "restore", "install-rclone"]),
+  filename: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/^[A-Za-z0-9._-]+\.omni-sync$/, "filename must be an .omni-sync snapshot")
+    .optional(),
+});
+
 export const updateComboSchema = z
   .object({
     name: z

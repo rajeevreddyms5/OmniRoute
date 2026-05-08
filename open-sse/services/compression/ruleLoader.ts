@@ -36,6 +36,14 @@ const VALID_INTENSITIES = new Set(["lite", "full", "ultra"]);
 const cache = new Map<string, CavemanRule[]>();
 let rulesDirCache: string | null = null;
 
+function getModuleDir(): string | null {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return null;
+  }
+}
+
 function normalizeReplacementKey(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -60,10 +68,14 @@ function getRuleFlags(rule: FileRule): string {
 
 function getRulesDir(): string {
   if (rulesDirCache) return rulesDirCache;
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const moduleDir = getModuleDir();
   const candidates = [
-    path.join(moduleDir, "rules"),
-    path.join(moduleDir, "..", "services", "compression", "rules"),
+    ...(moduleDir
+      ? [
+          path.join(moduleDir, "rules"),
+          path.join(moduleDir, "..", "services", "compression", "rules"),
+        ]
+      : []),
     path.join(process.cwd(), "open-sse", "services", "compression", "rules"),
     path.join(process.cwd(), "app", "open-sse", "services", "compression", "rules"),
   ];

@@ -310,6 +310,15 @@ export {
 } from "./db/syncTokens";
 
 export {
+  getStorageSyncSettings,
+  updateStorageSyncSettings,
+  recordStorageSyncSuccess,
+  recordStorageSyncError,
+} from "./db/storageSync";
+
+export type { StorageSyncSettings, StorageSyncProvider } from "./db/storageSync";
+
+export {
   getUpstreamProxyConfigs,
   getUpstreamProxyConfig,
   upsertUpstreamProxyConfig,

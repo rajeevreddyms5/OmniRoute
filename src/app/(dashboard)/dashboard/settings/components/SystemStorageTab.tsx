@@ -67,6 +67,42 @@ export default function SystemStorageTab() {
     keepLatest: 20,
     retentionDays: 0,
   });
+  const [storageSyncStatus, setStorageSyncStatus] = useState({
+    settings: {
+      enabled: false,
+      rcloneRemote: "",
+      remotePrefix: "backups",
+      keepLatest: 10,
+      encryptionMode: "cloud",
+      autoUpload: false,
+      autoRestore: false,
+      autoIntervalMinutes: 60,
+      lastUploadAt: null,
+      lastRestoreAt: null,
+      lastError: null,
+    },
+    rclone: {
+      available: false,
+      path: null,
+      version: null,
+    },
+  });
+  const [storageSyncForm, setStorageSyncForm] = useState({
+    enabled: false,
+    rcloneRemote: "",
+    remotePrefix: "backups",
+    keepLatest: 10,
+    encryptionMode: "cloud",
+    autoUpload: false,
+    autoRestore: false,
+    autoIntervalMinutes: 60,
+  });
+  const [storageSyncLoading, setStorageSyncLoading] = useState(false);
+  const [storageSyncAction, setStorageSyncAction] = useState("");
+  const [storageSyncMessage, setStorageSyncMessage] = useState({ type: "", message: "" });
+  const [remoteSnapshots, setRemoteSnapshots] = useState<any[]>([]);
+  const [remoteSnapshotsExpanded, setRemoteSnapshotsExpanded] = useState(false);
+  const [confirmRemoteRestore, setConfirmRemoteRestore] = useState("");
 
   // Database settings state (tasks 23-26)
   const [dbSettings, setDbSettings] = useState<any>(null);
@@ -99,6 +135,27 @@ export default function SystemStorageTab() {
       });
     } catch (err) {
       console.error("Failed to fetch storage health:", err);
+    }
+  };
+
+  const loadStorageSyncStatus = async () => {
+    try {
+      const res = await fetch("/api/storage-sync");
+      if (!res.ok) return;
+      const data = await res.json();
+      setStorageSyncStatus(data);
+      setStorageSyncForm({
+        enabled: data.settings?.enabled === true,
+        rcloneRemote: data.settings?.rcloneRemote || "",
+        remotePrefix: data.settings?.remotePrefix || "backups",
+        keepLatest: data.settings?.keepLatest || 10,
+        encryptionMode: data.settings?.encryptionMode || "cloud",
+        autoUpload: data.settings?.autoUpload === true,
+        autoRestore: data.settings?.autoRestore === true,
+        autoIntervalMinutes: data.settings?.autoIntervalMinutes || 60,
+      });
+    } catch (err) {
+      console.error("Failed to fetch storage sync status:", err);
     }
   };
 
@@ -245,7 +302,83 @@ export default function SystemStorageTab() {
   useEffect(() => {
     loadStorageHealth();
     loadDatabaseSettings();
+    loadStorageSyncStatus();
   }, []);
+
+  const saveStorageSyncSettings = async () => {
+    setStorageSyncLoading(true);
+    setStorageSyncMessage({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/storage-sync", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(storageSyncForm),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setStorageSyncStatus((prev) => ({ ...prev, settings: data.settings }));
+        setStorageSyncMessage({ type: "success", message: "Storage sync settings saved." });
+      } else {
+        setStorageSyncMessage({
+          type: "error",
+          message: data.error?.message || data.error || "Failed to save storage sync settings",
+        });
+      }
+    } catch {
+      setStorageSyncMessage({ type: "error", message: t("errorOccurred") });
+    } finally {
+      setStorageSyncLoading(false);
+    }
+  };
+
+  const runStorageSyncAction = async (action, filename = undefined) => {
+    setStorageSyncAction(action);
+    setStorageSyncMessage({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/storage-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(filename ? { action, filename } : { action }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStorageSyncMessage({
+          type: "error",
+          message: data.error?.message || data.error || "Storage sync action failed",
+        });
+        return;
+      }
+
+      if (action === "install-rclone") {
+        setStorageSyncMessage({ type: "success", message: "rclone is installed and ready." });
+        await loadStorageSyncStatus();
+      } else if (action === "upload") {
+        setStorageSyncMessage({
+          type: "success",
+          message: `Uploaded snapshot ${data.filename}.`,
+        });
+        await loadStorageSyncStatus();
+      } else if (action === "list") {
+        setRemoteSnapshots(data.snapshots || []);
+        setRemoteSnapshotsExpanded(true);
+        setStorageSyncMessage({
+          type: "success",
+          message: `Found ${(data.snapshots || []).length} remote snapshot(s).`,
+        });
+      } else if (action === "restore") {
+        setStorageSyncMessage({
+          type: "success",
+          message: "Remote snapshot restored. Reload the dashboard if data looks stale.",
+        });
+        await Promise.all([loadStorageHealth(), loadBackups(), loadStorageSyncStatus()]);
+      }
+    } catch {
+      setStorageSyncMessage({ type: "error", message: t("errorOccurred") });
+    } finally {
+      setStorageSyncAction("");
+      setConfirmRemoteRestore("");
+    }
+  };
 
   /** Triggers a browser file download from an existing Blob. */
   const triggerDownload = (blob: Blob, filename: string) => {
@@ -686,6 +819,304 @@ export default function SystemStorageTab() {
               </span>
               {cleanupBackupsStatus.message}
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="p-3 rounded-lg bg-bg border border-border mb-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+          <div>
+            <p className="text-sm font-medium text-text-main">Rclone storage sync</p>
+            <p className="text-xs text-text-muted">
+              Upload encrypted SQLite snapshots to a configured rclone remote such as Google Drive,
+              OneDrive, Dropbox, or WebDAV.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={storageSyncStatus.rclone.available ? "success" : "warning"} size="sm">
+              {storageSyncStatus.rclone.available ? "rclone ready" : "rclone missing"}
+            </Badge>
+            <Badge variant={storageSyncForm.enabled ? "success" : "default"} size="sm">
+              {storageSyncForm.enabled ? "enabled" : "disabled"}
+            </Badge>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+          <label className="flex flex-col gap-1 text-xs text-text-muted md:col-span-2">
+            Rclone remote
+            <input
+              type="text"
+              value={storageSyncForm.rcloneRemote}
+              placeholder="gdrive:OmniRoute"
+              onChange={(e) =>
+                setStorageSyncForm((prev) => ({ ...prev, rcloneRemote: e.target.value }))
+              }
+              className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-text-main"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-text-muted">
+            Remote folder
+            <input
+              type="text"
+              value={storageSyncForm.remotePrefix}
+              placeholder="backups"
+              onChange={(e) =>
+                setStorageSyncForm((prev) => ({ ...prev, remotePrefix: e.target.value }))
+              }
+              className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-text-main"
+            />
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+          <label className="flex flex-col gap-1 text-xs text-text-muted">
+            Snapshot encryption
+            <select
+              value={storageSyncForm.encryptionMode}
+              onChange={(e) =>
+                setStorageSyncForm((prev) => ({ ...prev, encryptionMode: e.target.value }))
+              }
+              className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-text-main"
+            >
+              <option value="cloud">Cloud provider default</option>
+              <option value="app">Encrypt before upload</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-text-muted">
+            Auto-sync interval
+            <input
+              type="number"
+              min={5}
+              max={1440}
+              value={storageSyncForm.autoIntervalMinutes}
+              onChange={(e) => {
+                const parsed = Number.parseInt(e.target.value || "60", 10);
+                setStorageSyncForm((prev) => ({
+                  ...prev,
+                  autoIntervalMinutes: Number.isFinite(parsed) ? parsed : 60,
+                }));
+              }}
+              className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-text-main"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-text-muted">
+            Stored snapshots
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={storageSyncForm.keepLatest}
+              onChange={(e) => {
+                const parsed = Number.parseInt(e.target.value || "10", 10);
+                setStorageSyncForm((prev) => ({
+                  ...prev,
+                  keepLatest: Number.isFinite(parsed) ? parsed : 10,
+                }));
+              }}
+              className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-text-main"
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <label className="inline-flex items-center gap-2 text-sm text-text-main mr-2">
+            <input
+              type="checkbox"
+              checked={storageSyncForm.enabled}
+              onChange={(e) =>
+                setStorageSyncForm((prev) => ({ ...prev, enabled: e.target.checked }))
+              }
+              className="h-4 w-4 rounded border-border"
+            />
+            Enable storage sync
+          </label>
+          <label className="inline-flex items-center gap-2 text-sm text-text-main mr-2">
+            <input
+              type="checkbox"
+              checked={storageSyncForm.autoUpload}
+              onChange={(e) =>
+                setStorageSyncForm((prev) => ({
+                  ...prev,
+                  autoUpload: e.target.checked,
+                  autoRestore: e.target.checked ? false : prev.autoRestore,
+                }))
+              }
+              className="h-4 w-4 rounded border-border"
+            />
+            Auto-upload
+          </label>
+          <label className="inline-flex items-center gap-2 text-sm text-text-main mr-2">
+            <input
+              type="checkbox"
+              checked={storageSyncForm.autoRestore}
+              onChange={(e) =>
+                setStorageSyncForm((prev) => ({
+                  ...prev,
+                  autoRestore: e.target.checked,
+                  autoUpload: e.target.checked ? false : prev.autoUpload,
+                }))
+              }
+              className="h-4 w-4 rounded border-border"
+            />
+            Auto-restore newer remote
+          </label>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={saveStorageSyncSettings}
+            loading={storageSyncLoading}
+          >
+            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
+              save
+            </span>
+            Save
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => runStorageSyncAction("install-rclone")}
+            loading={storageSyncAction === "install-rclone"}
+          >
+            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
+              download
+            </span>
+            Install rclone
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => runStorageSyncAction("upload")}
+            loading={storageSyncAction === "upload"}
+            disabled={!storageSyncStatus.rclone.available || !storageSyncForm.rcloneRemote}
+          >
+            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
+              cloud_upload
+            </span>
+            Upload snapshot
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => runStorageSyncAction("list")}
+            loading={storageSyncAction === "list"}
+            disabled={!storageSyncStatus.rclone.available || !storageSyncForm.rcloneRemote}
+          >
+            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
+              cloud_queue
+            </span>
+            List remote
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-text-muted mb-3">
+          <div>
+            <span className="font-medium text-text-main">Binary:</span>{" "}
+            {storageSyncStatus.rclone.version || "not detected"}
+          </div>
+          <div>
+            <span className="font-medium text-text-main">Last upload:</span>{" "}
+            {storageSyncStatus.settings.lastUploadAt
+              ? new Date(storageSyncStatus.settings.lastUploadAt).toLocaleString(locale)
+              : "never"}
+          </div>
+          <div>
+            <span className="font-medium text-text-main">Last restore:</span>{" "}
+            {storageSyncStatus.settings.lastRestoreAt
+              ? new Date(storageSyncStatus.settings.lastRestoreAt).toLocaleString(locale)
+              : "never"}
+          </div>
+        </div>
+
+        <div
+          className={`p-3 rounded-lg mb-3 text-xs ${
+            storageSyncForm.encryptionMode === "app"
+              ? "bg-green-500/10 text-green-500 border border-green-500/20"
+              : "bg-amber-500/10 text-amber-500 border border-amber-500/20"
+          }`}
+        >
+          {storageSyncForm.encryptionMode === "app"
+            ? "Snapshots are encrypted before upload. Other computers need the same storage sync encryption key to restore."
+            : "Snapshots rely on the cloud provider's default encryption and may contain provider credentials. Use a private Drive account or enable app encryption."}
+        </div>
+
+        {storageSyncMessage.message && (
+          <div
+            className={`p-3 rounded-lg mb-3 text-sm ${
+              storageSyncMessage.type === "success"
+                ? "bg-green-500/10 text-green-500 border border-green-500/20"
+                : "bg-red-500/10 text-red-500 border border-red-500/20"
+            }`}
+            role="alert"
+          >
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
+                {storageSyncMessage.type === "success" ? "check_circle" : "error"}
+              </span>
+              {storageSyncMessage.message}
+            </div>
+          </div>
+        )}
+
+        {remoteSnapshotsExpanded && (
+          <div className="flex flex-col gap-2">
+            {remoteSnapshots.length === 0 ? (
+              <div className="text-sm text-text-muted p-3 rounded-lg border border-border/50">
+                No remote snapshots found.
+              </div>
+            ) : (
+              remoteSnapshots.map((snapshot) => (
+                <div
+                  key={snapshot.name}
+                  className="flex items-center justify-between p-3 rounded-lg bg-black/[0.02] dark:bg-white/[0.02] border border-border/50"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{snapshot.name}</p>
+                    <p className="text-xs text-text-muted">
+                      {formatBytes(snapshot.size)}
+                      {snapshot.modifiedAt
+                        ? ` • ${new Date(snapshot.modifiedAt).toLocaleString(locale)}`
+                        : ""}
+                    </p>
+                  </div>
+                  {confirmRemoteRestore === snapshot.name ? (
+                    <div className="flex items-center gap-2 ml-3">
+                      <span className="text-xs text-amber-500 font-medium">Confirm</span>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => runStorageSyncAction("restore", snapshot.name)}
+                        loading={storageSyncAction === "restore"}
+                        className="!bg-amber-500 hover:!bg-amber-600"
+                      >
+                        Restore
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setConfirmRemoteRestore("")}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfirmRemoteRestore(snapshot.name)}
+                    >
+                      <span
+                        className="material-symbols-outlined text-[14px] mr-1"
+                        aria-hidden="true"
+                      >
+                        restore
+                      </span>
+                      Restore
+                    </Button>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         )}
       </div>

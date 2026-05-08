@@ -1,6 +1,7 @@
 import initializeCloudSync from "@/shared/services/initializeCloudSync";
 import { startBudgetResetJob } from "@/lib/jobs/budgetResetJob";
 import { startModelSyncScheduler } from "@/shared/services/modelSyncScheduler";
+import { startStorageSyncScheduler } from "@/shared/services/storageSyncScheduler";
 
 // Initialize runtime background sync services once per server process.
 let initialized = false;
@@ -40,6 +41,7 @@ export async function ensureCloudSyncInitialized() {
       initTokenHealthCheck();
       await initializeCloudSync();
       startModelSyncScheduler();
+      startStorageSyncScheduler();
       startBudgetResetJob();
       initialized = true;
     } catch (error) {

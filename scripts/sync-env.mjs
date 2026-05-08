@@ -35,6 +35,21 @@ const CRYPTO_SECRETS = {
  */
 const ENCRYPTION_BOUND_KEYS = new Set(["STORAGE_ENCRYPTION_KEY"]);
 
+function resolveRuntimeRoot(rootDir) {
+  if (rootDir) return rootDir;
+
+  const cwd = process.cwd();
+  if (existsSync(join(cwd, ".env.example"))) return cwd;
+
+  try {
+    return dirname(dirname(fileURLToPath(import.meta.url)));
+  } catch {
+    const entryDir = process.argv[1] ? dirname(resolve(process.argv[1])) : cwd;
+    const candidates = [entryDir, dirname(entryDir), cwd, dirname(cwd), join(cwd, "app")];
+    return candidates.find((candidate) => existsSync(join(candidate, ".env.example"))) ?? cwd;
+  }
+}
+
 // ── Resolve DATA_DIR (mirrors bootstrap-env.mjs / dataPaths.ts) ─────────────
 function resolveDataDir(env = process.env) {
   const configured = env.DATA_DIR?.trim();
@@ -156,7 +171,7 @@ function parseExampleEntries(content, scope = "full") {
 }
 
 export function getEnvSyncPlan({ rootDir, scope = "full" } = {}) {
-  const root = rootDir || dirname(dirname(fileURLToPath(import.meta.url)));
+  const root = resolveRuntimeRoot(rootDir);
   const envExamplePath = join(root, ".env.example");
   const envPath = join(root, ".env");
 
@@ -223,7 +238,7 @@ function replaceBlankSecret(content, key, value) {
 
 export function syncEnv({ rootDir, quiet = false, scope = "full" } = {}) {
   const log = quiet ? () => {} : (message) => process.stderr.write(`[sync-env] ${message}\n`);
-  const root = rootDir || dirname(dirname(fileURLToPath(import.meta.url)));
+  const root = resolveRuntimeRoot(rootDir);
   const envExamplePath = join(root, ".env.example");
   const envPath = join(root, ".env");
 

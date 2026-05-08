@@ -150,6 +150,34 @@ function toString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function normalizeConfiguredPath(
+  pathModule: typeof import("node:path"),
+  dir: unknown
+): string | null {
+  if (typeof dir !== "string") return null;
+  const trimmed = dir.trim();
+  return trimmed ? pathModule.resolve(trimmed) : null;
+}
+
+function resolveMcpAuditDataDir(
+  osModule: typeof import("node:os"),
+  pathModule: typeof import("node:path")
+): string {
+  const configured = normalizeConfiguredPath(pathModule, process.env.DATA_DIR);
+  if (configured) return configured;
+
+  const homeDir = osModule.homedir();
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA || pathModule.join(homeDir, "AppData", "Roaming");
+    return pathModule.join(appData, "omniroute");
+  }
+
+  const xdgConfigHome = normalizeConfiguredPath(pathModule, process.env.XDG_CONFIG_HOME);
+  if (xdgConfigHome) return pathModule.join(xdgConfigHome, "omniroute");
+
+  return pathModule.join(homeDir, ".omniroute");
+}
+
 /**
  * Lazy-load the database connection.
  * Uses the same SQLite database as the main OmniRoute app.
@@ -160,13 +188,11 @@ async function getDb(): Promise<AuditDatabase | null> {
 
   try {
     // Try importing the db module from the main app
-    const { homedir } = await import("node:os");
-    const { join } = await import("node:path");
+    const os = await import("node:os");
+    const path = await import("node:path");
     const { existsSync } = await import("node:fs");
 
-    const dbPath = process.env.DATA_DIR
-      ? join(process.env.DATA_DIR, "storage.sqlite")
-      : join(homedir(), ".omniroute", "storage.sqlite");
+    const dbPath = path.join(resolveMcpAuditDataDir(os, path), "storage.sqlite");
 
     if (!existsSync(dbPath)) {
       console.error(`[MCP Audit] Database not found at ${dbPath} — audit logging disabled`);
