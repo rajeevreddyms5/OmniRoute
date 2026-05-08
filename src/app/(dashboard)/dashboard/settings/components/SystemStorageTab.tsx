@@ -103,6 +103,7 @@ export default function SystemStorageTab() {
   const [remoteSnapshots, setRemoteSnapshots] = useState<any[]>([]);
   const [remoteSnapshotsExpanded, setRemoteSnapshotsExpanded] = useState(false);
   const [confirmRemoteRestore, setConfirmRemoteRestore] = useState("");
+  const [storageSyncGuideOpen, setStorageSyncGuideOpen] = useState(false);
 
   // Database settings state (tasks 23-26)
   const [dbSettings, setDbSettings] = useState<any>(null);
@@ -368,7 +369,7 @@ export default function SystemStorageTab() {
       } else if (action === "restore") {
         setStorageSyncMessage({
           type: "success",
-          message: "Remote snapshot restored. Reload the dashboard if data looks stale.",
+          message: `Remote snapshot ${filename || "latest.omni-sync"} restored. Reload the dashboard if data looks stale.`,
         });
         await Promise.all([loadStorageHealth(), loadBackups(), loadStorageSyncStatus()]);
       }
@@ -833,6 +834,16 @@ export default function SystemStorageTab() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStorageSyncGuideOpen((open) => !open)}
+            >
+              <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
+                help
+              </span>
+              Setup guide
+            </Button>
             <Badge variant={storageSyncStatus.rclone.available ? "success" : "warning"} size="sm">
               {storageSyncStatus.rclone.available ? "rclone ready" : "rclone missing"}
             </Badge>
@@ -841,6 +852,45 @@ export default function SystemStorageTab() {
             </Badge>
           </div>
         </div>
+
+        {storageSyncGuideOpen && (
+          <div className="mb-3 rounded-lg border border-border bg-background p-3 text-sm text-text-main">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <p className="font-medium mb-2">Configure rclone</p>
+                <ol className="list-decimal pl-5 space-y-1 text-xs text-text-muted">
+                  <li>Install rclone from this panel if it is missing.</li>
+                  <li>
+                    Open PowerShell and run <code className="font-mono">rclone config</code>.
+                  </li>
+                  <li>
+                    Create a new remote, for example <code className="font-mono">gdrive</code>.
+                  </li>
+                  <li>Choose Google Drive, Dropbox, OneDrive, or another provider.</li>
+                  <li>
+                    Finish browser login, then test with{" "}
+                    <code className="font-mono">rclone lsd gdrive:</code>.
+                  </li>
+                </ol>
+              </div>
+              <div>
+                <p className="font-medium mb-2">Use with OmniRoute</p>
+                <ol className="list-decimal pl-5 space-y-1 text-xs text-text-muted">
+                  <li>
+                    Set <span className="text-text-main">Rclone remote</span> to{" "}
+                    <code className="font-mono">gdrive:</code>.
+                  </li>
+                  <li>
+                    Set <span className="text-text-main">Remote folder</span> to{" "}
+                    <code className="font-mono">OmniRoute/backups</code>.
+                  </li>
+                  <li>On the main computer, upload a snapshot or enable auto-upload.</li>
+                  <li>On another computer, configure the same remote and use Restore latest.</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
           <label className="flex flex-col gap-1 text-xs text-text-muted md:col-span-2">
@@ -1007,6 +1057,35 @@ export default function SystemStorageTab() {
             </span>
             List remote
           </Button>
+          {confirmRemoteRestore === "latest.omni-sync" ? (
+            <>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => runStorageSyncAction("restore", "latest.omni-sync")}
+                loading={storageSyncAction === "restore"}
+                disabled={!storageSyncStatus.rclone.available || !storageSyncForm.rcloneRemote}
+                className="!bg-amber-500 hover:!bg-amber-600"
+              >
+                Confirm restore latest
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setConfirmRemoteRestore("")}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmRemoteRestore("latest.omni-sync")}
+              disabled={!storageSyncStatus.rclone.available || !storageSyncForm.rcloneRemote}
+            >
+              <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
+                restore
+              </span>
+              Restore latest
+            </Button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-text-muted mb-3">
