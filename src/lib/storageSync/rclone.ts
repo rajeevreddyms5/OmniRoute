@@ -178,7 +178,7 @@ async function extractZip(zipPath: string, destination: string) {
       [
         "-NoProfile",
         "-Command",
-        "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
+        "& { param([string]$zipPath, [string]$destination) Expand-Archive -LiteralPath $zipPath -DestinationPath $destination -Force }",
         zipPath,
         destination,
       ],
